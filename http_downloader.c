@@ -1,99 +1,101 @@
+#include <arpa/inet.h>
+#include <openssl/ssl.h>
+#include <pthread.h>
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <arpa/inet.h>
-#include <openssl/ssl.h>
-#include <pthread.h>
-#include <fcntl.h>
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t file_write_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // resolve the IP address of the web server based on its hostname. executed first to obtain the IP address
-char* get_request_ip(char* host_name, char* ip_adrs_output)
+char* getRequestIp(char* host_name, char* result_ip_address)
 {
-  int dns_result;
-  struct addrinfo *dns_list;
-  struct addrinfo *temp_itr;
-  char ip_address_temp[NI_MAXHOST];
-  dns_result = getaddrinfo(host_name, "80", NULL, &dns_list );
-  if( dns_result != 0)
+  struct addrinfo *dns_names;
+  struct addrinfo *interim;
+  char interim_ip_address[NI_MAXHOST];
+  int output_of_dns;
+  output_of_dns = getaddrinfo(host_name, "80", NULL, &dns_names );
+  if( output_of_dns != 0)
   {
-    fprintf(stderr,"DNS failed %s", gai_strerror(dns_result));
+    fprintf(stderr,"DNS error due to - %s", gai_strerror(output_of_dns));
   }
-  for( temp_itr=dns_list ; temp_itr != NULL; temp_itr = temp_itr->ai_next)
+  for( interim=dns_names ; interim != NULL; interim = interim->ai_next)
   {
-    int conv_flag = getnameinfo(temp_itr->ai_addr , temp_itr->ai_addrlen , ip_address_temp , NI_MAXHOST ,NULL , 0 , NI_NUMERICHOST );
-    if( conv_flag )
+    int flag = getnameinfo(interim->ai_addr , interim->ai_addrlen , interim_ip_address , NI_MAXHOST ,NULL , 0 , NI_NUMERICHOST );
+    if( flag )
     {
-      fprintf(stderr, "error in getnameinfo() %s \n", gai_strerror(conv_flag));
+      fprintf(stderr, "getnameinfo() error due to - %s \n", gai_strerror(flag));
     }
-    if( temp_itr->ai_family == AF_INET )
+    if( interim->ai_family == AF_INET )
     {
-      strcpy( ip_adrs_output , ip_address_temp );
+      strcpy( result_ip_address , interim_ip_address );
       break;
     }
   }
-  return ip_adrs_output;
-} // get_request_ip
+  return result_ip_address;
+} // getRequestIp
 
-// create a TCP socket and establish a connection to the web server
-int open_tcp_socket(char* ip_adrs_output)
+// create a TCP socket and establish a tcp_conn to the web server
+int establishTcpSocket(char* result_ip_address)
 {
-  int sckt_num;
-  sckt_num = socket(AF_INET , SOCK_STREAM , 0);
-  struct sockaddr_in destination_address;
-  destination_address.sin_family = AF_INET;
-  destination_address.sin_port = htons(443);
-  destination_address.sin_addr.s_addr = inet_addr(ip_adrs_output);
-  int connection = connect(sckt_num, (struct sockaddr *) &destination_address, sizeof(destination_address));
-  if( connection == -1)
+  int sckt_val;
+  sckt_val = socket(AF_INET , SOCK_STREAM , 0);
+  struct sockaddr_in sockaddr_out;
+  sockaddr_out.sin_family = AF_INET;
+  sockaddr_out.sin_port = htons(443);
+  sockaddr_out.sin_addr.s_addr = inet_addr(result_ip_address);
+  int tcp_conn = connect(sckt_val, (struct sockaddr *) &sockaddr_out, sizeof(sockaddr_out));
+  if( tcp_conn == -1)
   {
-    fprintf(stderr, "Connection failed %s \n", gai_strerror(connection));
+    fprintf(stderr, "tcp_conn failed %s \n", gai_strerror(tcp_conn));
   }
-  return sckt_num;
-} //open_tcp_socket
+  return sckt_val;
+} //establishTcpSocket
 
 // initialize an SSL/TLS session and bind it to the established TCP socket
-SSL* bind_skt_and_tls_ssn(char* host_name , int sckt_num , SSL_CTX* ssl_ctx)
+SSL* bindSocketWithTLSSession(char* host_name , int sckt_val , SSL_CTX* ssl_ctx)
 {
-  SSL *conn = SSL_new(ssl_ctx);
-  SSL_set_tlsext_host_name(conn, host_name);
-  SSL_set_fd(conn,sckt_num);
-  int err = SSL_connect(conn);
+  SSL *connection = SSL_new(ssl_ctx);
+  SSL_set_tlsext_host_name(connection, host_name);
+  SSL_set_fd(connection,sckt_val);
+  int err = SSL_connect(connection);
   if (err != 1)
   {
-    printf("error in ssl\n");
-    abort(); // handle error
+    printf("SSL Error");
+    abort();
   }
-  return conn;
-} //bind_skt_and_tls_ssn
+  return connection;
+} //bindSocketWithTLSSession
 
-void write_files(char *filename , char* buffer , int part , int length)
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void writeFiles(char *file_name , char* buffer , int part , int length)
 {
-  pthread_mutex_lock(&file_write_mutex);
+  pthread_mutex_lock(&mutex);
   if( strstr(buffer , "HTTP/1.1 206 Partial Content") == NULL)
   {
-    char file_no[20];
-    sprintf(file_no , "%d_" , part);
-    FILE *fptr = fopen(strcat(file_no ,filename ) , "ab" );
+    char parts[20];
+    sprintf(parts , "%d_" , part);
+    FILE *fptr = fopen(strcat(parts ,file_name ) , "ab" );
     fwrite(buffer ,  1, length , fptr);
     fclose(fptr);
   }
-  pthread_mutex_unlock(&file_write_mutex);
-}// write_files
+  pthread_mutex_unlock(&mutex);
+}// writeFiles
 
 struct Arguments_for_thread_function
 {
     char* host_name ;
-    char* ip_adrs_output ;
+    char* result_ip_address ;
     char* output_file_name ;
     SSL_CTX* ssl_ctx ;
     int i ;
-    char* intermediate_request;
+    char* transitional_get;
     int last_part_length ;
     int file_length;
 }; //Arguments_for_thread_function
@@ -102,10 +104,10 @@ void* creating_thread(void* arguments)
 {
     struct Arguments_for_thread_function* args = (struct Arguments_for_thread_function*) arguments;
     char* host_name = args->host_name;
-    char* ip_adrs_output = args->ip_adrs_output ;
+    char* result_ip_address = args->result_ip_address ;
     char* output_file_name = args->output_file_name ;
     int i  = args->i;
-    char* intermediate_request = args->intermediate_request;
+    char* transitional_get = args->transitional_get;
     int last_part_length = args->last_part_length;
     SSL_library_init ();
     SSL_load_error_strings();
@@ -115,15 +117,15 @@ void* creating_thread(void* arguments)
     int prev = 0;
     char recur_buffer[last_part_length*2];
     char perm_buffer[args->file_length];
-    int sckt_num = open_tcp_socket(ip_adrs_output);
-    SSL *conn = bind_skt_and_tls_ssn(host_name , sckt_num , ssl_ctx);
-    if( resp = SSL_write(conn , intermediate_request , strlen(intermediate_request)) < 0){
+    int sckt_val = establishTcpSocket(result_ip_address);
+    SSL *connection = bindSocketWithTLSSession(host_name , sckt_val , ssl_ctx);
+    if( resp = SSL_write(connection , transitional_get , strlen(transitional_get)) < 0){
       perror("ERROR writing to ssl socket");
     }
     int k = 0;
     while(1) {      
           explicit_bzero(recur_buffer, last_part_length);
-          if ((resp = SSL_read(conn, recur_buffer, last_part_length*2)) < 0) {
+          if ((resp = SSL_read(connection, recur_buffer, last_part_length*2)) < 0) {
             perror("ERROR reading from socket.");
             break;
           }
@@ -133,7 +135,7 @@ void* creating_thread(void* arguments)
           else{
             if( strstr(recur_buffer , "HTTP/1.1 206 Partial Content") == NULL){
                 k += resp;
-                write_files(output_file_name , recur_buffer , i , resp);
+                writeFiles(output_file_name , recur_buffer , i+1 , resp);
             }
             else
             {
@@ -142,12 +144,12 @@ void* creating_thread(void* arguments)
               {
                 offset = offset+4;
                 k += strlen(offset);
-                write_files(output_file_name, recur_buffer + (resp-strlen(offset)), i, strlen(offset));
+                writeFiles(output_file_name, recur_buffer + (resp-strlen(offset)), i, strlen(offset));
               }
             }
             if( k == last_part_length){
-              SSL_free(conn);
-              close(sckt_num);
+              SSL_free(connection);
+              close(sckt_val);
               break;
             }
           }
@@ -159,12 +161,12 @@ void main(int argc, char **argv)
 {
   char* link_address = NULL;
   char* output_file_name = NULL;
-  char* no_of_tcp_conn = NULL;
+  char* tcp_count = NULL;
   char host_name[64];
-  char ip_adrs_output[NI_MAXHOST];
+  char result_ip_address[NI_MAXHOST];
   char path[1024];
-  int sckt_num;
-  char intermediate_request[2048];
+  int sckt_val;
+  char transitional_get[2048];
   char buffer[4096];
   char perm_buffer[4096];
   int content_length;
@@ -180,24 +182,24 @@ void main(int argc, char **argv)
     }
      if( strcmp(*(argv+i) , "-n") == 0)
     {
-      no_of_tcp_conn = *(argv+i+1);
+      tcp_count = *(argv+i+1);
     }
   }
   
   sscanf(link_address , "%*[^:]%*[:/]%[^/]%s", host_name, path);
-  strcpy(ip_adrs_output , get_request_ip(host_name , ip_adrs_output));
-  sckt_num = open_tcp_socket(ip_adrs_output);
+  strcpy(result_ip_address , getRequestIp(host_name , result_ip_address));
+  sckt_val = establishTcpSocket(result_ip_address);
   SSL_library_init();
   SSL_load_error_strings();
   OpenSSL_add_ssl_algorithms();
   SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
-  SSL *conn = bind_skt_and_tls_ssn(host_name , sckt_num , ssl_ctx);
+  SSL *connection = bindSocketWithTLSSession(host_name , sckt_val , ssl_ctx);
   
-  sprintf(intermediate_request , "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nUser-Agent: PostmanRuntime/7.29.2\r\n\r\n" , path , host_name);
+  sprintf(transitional_get , "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nUser-Agent: PostmanRuntime/7.29.2\r\n\r\n" , path , host_name);
 
-  char* request = intermediate_request;
+  char* request = transitional_get;
   int resp = 0;
-  if( resp = SSL_write(conn , request , strlen(request)) < 0)
+  if( resp = SSL_write(connection , request , strlen(request)) < 0)
   {
     perror("ERROR writing to ssl socket");
   }
@@ -205,7 +207,7 @@ void main(int argc, char **argv)
   while(1)
   {
     explicit_bzero(buffer, 4096);
-    if ((resp = SSL_read(conn, buffer, 4095)) < 0) {
+    if ((resp = SSL_read(connection, buffer, 4095)) < 0) {
       perror("ERROR reading from socket.");
       break;
     }
@@ -244,7 +246,7 @@ void main(int argc, char **argv)
       content_length = atoi(content);
     }
   }
-  int no_of_tcp_conn_int = atoi(no_of_tcp_conn);
+  int no_of_tcp_conn_int = atoi(tcp_count);
   int part_length = content_length/(no_of_tcp_conn_int);
   int last_part_length = part_length+content_length-(no_of_tcp_conn_int)*part_length;
   unsigned char recur_buffer[last_part_length];
@@ -254,18 +256,18 @@ void main(int argc, char **argv)
   {
     if( i != no_of_tcp_conn_int-1)
     {
-      sprintf(intermediate_request , "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=%d-%d\r\nUser-Agent: %s\r\n\r\n" , path , host_name , i*part_length , (i+1)*part_length-1 ,user_agent) ;
+      sprintf(transitional_get , "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=%d-%d\r\nUser-Agent: %s\r\n\r\n" , path , host_name , i*part_length , (i+1)*part_length-1 ,user_agent) ;
     }
     else
     {
-      sprintf(intermediate_request , "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=%d-%d\r\nUser-Agent: %s\r\n\r\n" , path , host_name , i*part_length , i*part_length + last_part_length-1 ,user_agent) ;
+      sprintf(transitional_get , "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=%d-%d\r\nUser-Agent: %s\r\n\r\n" , path , host_name , i*part_length , i*part_length + last_part_length-1 ,user_agent) ;
     }
     struct Arguments_for_thread_function arguments;
     arguments.host_name = host_name;
     arguments.output_file_name = output_file_name;
     arguments.i = i;
-    arguments.ip_adrs_output = ip_adrs_output;
-    arguments.intermediate_request = intermediate_request;
+    arguments.result_ip_address = result_ip_address;
+    arguments.transitional_get = transitional_get;
     arguments.last_part_length = part_length;
     if( i == no_of_tcp_conn_int-1)
     {
@@ -281,7 +283,7 @@ void main(int argc, char **argv)
   for(int i = 0 ; i < no_of_tcp_conn_int; i++)
   {
     char file_no[20];
-      sprintf(file_no , "%d_" , i);
+      sprintf(file_no , "%d_" , i+1);
       FILE *intermediate_file = fopen(strcat(file_no ,output_file_name) , "rb" );
       fseek(intermediate_file , 0 , SEEK_END);
       int size = ftell(intermediate_file);
@@ -293,8 +295,8 @@ void main(int argc, char **argv)
   }
   fclose(fptr);
 
-  SSL_free(conn);
-  close(sckt_num);
+  SSL_free(connection);
+  close(sckt_val);
   SSL_CTX_free(ssl_ctx);
 
 } // main

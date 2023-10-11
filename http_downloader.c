@@ -98,7 +98,7 @@ struct Arguments_for_thread_function
     int file_length;
 }; //Arguments_for_thread_function
 
-void* parallel_function(void* arguments)
+void* creating_thread(void* arguments)
 {
     struct Arguments_for_thread_function* args = (struct Arguments_for_thread_function*) arguments;
     char* host_name = args->host_name;
@@ -152,7 +152,7 @@ void* parallel_function(void* arguments)
             }
           }
     }
-} //parallel_function
+} //creating_thread
 
 // parsing command-line arguments, initializing variables, and setting up the necessary data structures
 void main(int argc, char **argv)
@@ -249,9 +249,7 @@ void main(int argc, char **argv)
   int last_part_length = part_length+content_length-(no_of_tcp_conn_int)*part_length;
   unsigned char recur_buffer[last_part_length];
   pthread_t threads[no_of_tcp_conn_int];
-  char* user_agent = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Mobile Safari/537.36";
-
-  // char* user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+  char* user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
   for(int i = 0 ; i < no_of_tcp_conn_int ; i++ )
   {
     if( i != no_of_tcp_conn_int-1)
@@ -275,7 +273,7 @@ void main(int argc, char **argv)
     }
     arguments.ssl_ctx = ssl_ctx;
     arguments.file_length = content_length;
-    pthread_create(&threads[i] , NULL , parallel_function ,(void *) &arguments);
+    pthread_create(&threads[i] , NULL , creating_thread ,(void *) &arguments);
     pthread_join(threads[i] , NULL);
   }
     

@@ -9,9 +9,6 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-
-//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-
 // resolve the IP address of the web server based on its hostname. executed first to obtain the IP address
 char* getRequestIp(char* host_name, char* result_ip_address)
 {
@@ -74,14 +71,14 @@ SSL* bindSocketWithTLSSession(char* host_name , int sckt_val , SSL_CTX* ssl_ctx)
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void writeFiles(char *file_name , char* buffer , int part , int length)
+void writeFiles(char *ext, char* buffer , int part , int length)
 {
   pthread_mutex_lock(&mutex);
   if( strstr(buffer , "HTTP/1.1 206 Partial Content") == NULL)
   {
     char parts[20];
-    sprintf(parts , "%d_" , part);
-    FILE *fptr = fopen(strcat(parts ,file_name ) , "ab" );
+    sprintf(parts , "Part_%d." , part);
+    FILE *fptr = fopen(strcat(parts ,ext ) , "ab" );
     fwrite(buffer ,  1, length , fptr);
     fclose(fptr);
   }
@@ -99,6 +96,14 @@ struct Arguments_for_thread_function
     int last_part_length ;
     int file_length;
 }; //Arguments_for_thread_function
+
+char* getFileExtension(char* filename){
+    char* ext = strrchr(filename, '.');
+    if (ext && ext != filename) {
+        return ext + 1; 
+    }
+    return NULL;
+}
 
 void* creating_thread(void* arguments)
 {
@@ -122,6 +127,7 @@ void* creating_thread(void* arguments)
     if( resp = SSL_write(connection , transitional_get , strlen(transitional_get)) < 0){
       perror("ERROR writing to ssl socket");
     }
+
     int k = 0;
     while(1) {      
           explicit_bzero(recur_buffer, last_part_length);
@@ -135,7 +141,7 @@ void* creating_thread(void* arguments)
           else{
             if( strstr(recur_buffer , "HTTP/1.1 206 Partial Content") == NULL){
                 k += resp;
-                writeFiles(output_file_name , recur_buffer , i+1 , resp);
+                writeFiles(getFileExtension(output_file_name), recur_buffer , i+1 , resp);
             }
             else
             {
@@ -144,7 +150,7 @@ void* creating_thread(void* arguments)
               {
                 offset = offset+4;
                 k += strlen(offset);
-                writeFiles(output_file_name, recur_buffer + (resp-strlen(offset)), i, strlen(offset));
+                writeFiles(getFileExtension(output_file_name), recur_buffer + (resp-strlen(offset)), i, strlen(offset));
               }
             }
             if( k == last_part_length){
@@ -278,13 +284,13 @@ void main(int argc, char **argv)
     pthread_create(&threads[i] , NULL , creating_thread ,(void *) &arguments);
     pthread_join(threads[i] , NULL);
   }
-    
+  
   FILE *fptr = fopen(output_file_name, "ab");
   for(int i = 0 ; i < no_of_tcp_conn_int; i++)
   {
     char file_no[20];
-      sprintf(file_no , "%d_" , i+1);
-      FILE *intermediate_file = fopen(strcat(file_no ,output_file_name) , "rb" );
+      sprintf(file_no , "Part_%d." , i+1);
+      FILE *intermediate_file = fopen(strcat(file_no ,getFileExtension(output_file_name)) , "rb" );
       fseek(intermediate_file , 0 , SEEK_END);
       int size = ftell(intermediate_file);
       rewind(intermediate_file);
@@ -300,3 +306,6 @@ void main(int argc, char **argv)
   SSL_CTX_free(ssl_ctx);
 
 } // main
+
+/** Note: PDF file is downloaded if URL is like https://arxiv.org/ftp/arxiv/papers/2310/2310.06456.pdf
+ and will not download if the URL is like https://browse.arxiv.org/pdf/2301.00275.pdf */

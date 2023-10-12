@@ -77,7 +77,7 @@ void writeFiles(char *ext, char* buffer , int part , int length)
   if( strstr(buffer , "HTTP/1.1 206 Partial Content") == NULL)
   {
     char parts[20];
-    sprintf(parts , "Part_%d." , part);
+    sprintf(parts , "part_%d." , part);
     FILE *fptr = fopen(strcat(parts ,ext ) , "ab" );
     fwrite(buffer ,  1, length , fptr);
     fclose(fptr);
@@ -289,7 +289,7 @@ void main(int argc, char **argv)
   for(int i = 0 ; i < no_of_tcp_conn_int; i++)
   {
     char file_no[20];
-      sprintf(file_no , "Part_%d." , i+1);
+      sprintf(file_no , "part_%d." , i+1);
       FILE *intermediate_file = fopen(strcat(file_no ,getFileExtension(output_file_name)) , "rb" );
       fseek(intermediate_file , 0 , SEEK_END);
       int size = ftell(intermediate_file);

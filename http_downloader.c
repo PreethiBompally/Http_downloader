@@ -71,7 +71,7 @@ SSL* bindSocketWithTLSSession(char* host_name , int sckt_val , SSL_CTX* ssl_ctx)
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void writeFiles(char *ext, char* buffer , int part , int length)
+void saveFiles(char *ext, char* buffer , int part , int length)
 {
   pthread_mutex_lock(&mutex);
   if( strstr(buffer , "HTTP/1.1 206 Partial Content") == NULL)
@@ -83,7 +83,7 @@ void writeFiles(char *ext, char* buffer , int part , int length)
     fclose(fptr);
   }
   pthread_mutex_unlock(&mutex);
-}// writeFiles
+}// saveFiles
 
 struct Arguments_for_thread_function
 {
@@ -141,7 +141,7 @@ void* creating_thread(void* arguments)
           else{
             if( strstr(recur_buffer , "HTTP/1.1 206 Partial Content") == NULL){
                 k += resp;
-                writeFiles(getFileExtension(output_file_name), recur_buffer , i+1 , resp);
+                saveFiles(getFileExtension(output_file_name), recur_buffer , i+1 , resp);
             }
             else
             {
@@ -150,7 +150,7 @@ void* creating_thread(void* arguments)
               {
                 offset = offset+4;
                 k += strlen(offset);
-                writeFiles(getFileExtension(output_file_name), recur_buffer + (resp-strlen(offset)), i, strlen(offset));
+                saveFiles(getFileExtension(output_file_name), recur_buffer + (resp-strlen(offset)), i, strlen(offset));
               }
             }
             if( k == last_part_length){
